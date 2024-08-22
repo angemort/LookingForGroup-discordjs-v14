@@ -1,0 +1,25 @@
+
+***ERROR***
+Guild ID: 1234
+Friendly error message: This is a fake error!
+Technical info: Fake Error
+
+***ERROR***
+Guild ID: -
+Friendly error message: Unhandled rejection!
+Technical info: TypeError [InvalidMissingScopes]: At least one valid scope must be provided for the invite
+
+***ERROR***
+Guild ID: 1234
+Friendly error message: TypeError [InvalidMissingScopes]: At least one valid scope must be provided for the invite
+Technical info: Error generating invite
+
+***ERROR***
+Guild ID: -
+Friendly error message: Unhandled rejection!
+Technical info: TypeError: bot.generateInvite(...).then is not a function
+
+***ERROR***
+Guild ID: 774835458533228555
+Friendly error message: Failed to add game "test" to the games list.
+Technical info: false

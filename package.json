@@ -3,17 +3,17 @@
   "version": "0.0.1",
   "main": "src/bot.js",
   "repository": "https://github.com/starsky135/LookingForPlayers.git",
-  "author": "LFG Development Team",
+  "author": "AngeMort",
   "license": "MIT",
   "scripts": {
     "start": "node src/bot.js"
   },
   "dependencies": {
-    "discord.js": "git+https://github.com/hydrabolt/discord.js.git",
+    "discord.js": "^14.15.3",
     "dotenv": "^4.0.0",
     "moment": "^2.18.1"
   },
   "devDependencies": {
-    "eslint": "^3.19.0"
+    "eslint": "^9.9.0"
   }
 }

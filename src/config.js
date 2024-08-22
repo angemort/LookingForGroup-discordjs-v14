@@ -1,29 +1,43 @@
 const fs = require('fs');
-if (!fs.existsSync('../data/config.json')) {
-    if (!fs.existsSync('../data')) fs.mkdirSync('../data');
-    fs.writeFileSync('../data/config.json', '{}');
+const path = require('path');
+
+const configFilePath = path.join(__dirname, '../data/config.json');
+// Vérifiez si le fichier de configuration existe, sinon créez-le
+if (!fs.existsSync(configFilePath)) {
+    const dataDir = path.dirname(configFilePath);
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(configFilePath, '{}', 'utf8');
 }
-const config = module.exports = {
-    data: require('../data/config.json')
+
+const config = {
+    data: require(configFilePath)
 };
-// Saves the changes made to config.json
+
+// Sauvegarde les modifications apportées à config.json
 config.save = function() {
-    fs.writeFile('../data/config.json', JSON.stringify(config.data), err => {
+    fs.writeFile(configFilePath, JSON.stringify(config.data, null, 4), 'utf8', err => {
         if (err) {
+            console.error('Failed to save configuration:', err);
             throw err;
+        } else {
+            console.log('Configuration saved successfully.');
         }
     });
 };
+
+// Vérifie si l'utilisateur est présent dans l'une des guildes
 config.checkUser = function(USER_ID) {
-    for (let i = 0; i <= Object.keys(config.data).length - 1; i++) {
-        let objectKeys = Object.keys(config.data)[i];
-        let keysOfObjectKeys = Object.keys(config.data[objectKeys]);
-        if (config.data[objectKeys][keysOfObjectKeys[1]].members.includes(USER_ID)) {
-            return false;
+    for (let guildId in config.data) {
+        for (let key in config.data[guildId]) {
+            if (config.data[guildId][key]?.members?.includes(USER_ID)) {
+                return false; // Utilisateur trouvé
+            }
         }
     }
-    return true;
+    return true; // Utilisateur non trouvé
 };
+
+// Nettoie les données d'une guilde spécifique
 config.cleanGuild = function(GUILD_ID) {
     return new Promise((resolve, reject) => {
         try {
@@ -32,63 +46,76 @@ config.cleanGuild = function(GUILD_ID) {
             config.save();
             resolve(true);
         } catch (err) {
+            console.error('Error cleaning guild:', err);
             reject(false);
         }
     });
 };
+
+// Recherche un message par son ID dans une guilde spécifique
 config.scanForMsdID = function(MESSAGE_ID, GUILD_ID) {
+    console.log("Scanning message " + MESSAGE_ID + " in guild " + GUILD_ID);
     return new Promise((resolve, reject) => {
-        for (let x = 3; x < Object.keys(config.data[GUILD_ID]).length; x++) {
-            console.log(Object.keys(config.data[GUILD_ID])[x]);
-            if (config.data[GUILD_ID][Object.keys(config.data[GUILD_ID])[x]].messageid == MESSAGE_ID) {
-                return resolve(config.data[GUILD_ID][x]);
+        for (let key in config.data[GUILD_ID]) {
+            if (config.data[GUILD_ID][key].messageid === MESSAGE_ID) {
+                console.log('Message found:', config.data[GUILD_ID][key]);
+                return resolve(config.data[GUILD_ID][key]);
             }
         }
+        console.log('Message not found.');
         reject(false);
     });
 };
-// Adds a user to a session
+
+// Ajoute un utilisateur à une session
 config.addUser = function(GUILD_ID, ROLE_ID, USER_ID) {
     return new Promise((resolve, reject) => {
         try {
             initIfNeeded(GUILD_ID);
-            for (let i = 0; i < config.data[GUILD_ID].games.length; i++) {
-                if (config.data[GUILD_ID][ROLE_ID].game == config.data[GUILD_ID].games[i][0]) {
-                    if (config.data[GUILD_ID][ROLE_ID].members.length < config.data[GUILD_ID].games[i][1]) {
-                        if (config.data[GUILD_ID][ROLE_ID].members.includes(USER_ID) == false) { //Makes sure there will be no duplicate entries in the player list
-                            config.data[GUILD_ID][ROLE_ID].members.push(USER_ID);
-                            config.save();
-                            if (config.data[GUILD_ID][ROLE_ID].members.length == config.data[GUILD_ID].games[i][1]) {
-                                config.data[GUILD_ID].games[i].full = true;
-                                resolve(config.data[GUILD_ID].games[i]);
-                            } else {
-                                var result = config.data[GUILD_ID].games[i];
-                                resolve(result);
-                            }
-                        }
+
+            const session = config.data[GUILD_ID][ROLE_ID];
+            const gameLimit = session.limit;
+
+            if (session.members.length < gameLimit) {
+                if (!session.members.includes(USER_ID)) {
+                    session.members.push(USER_ID);
+                    config.save();
+
+                    if (session.members.length === gameLimit) {
+                        resolve('full');
                     } else {
-                        //GROUP IS FULL. DO WHATEVER
-                        console.log('Group full');
-                        reject('full');
+                        resolve(session);
                     }
+                } else {
+                    resolve('already_in_session');
                 }
+            } else {
+                reject('full');
             }
         } catch (err) {
+            console.error('Error adding user to session:', err);
             reject(err);
         }
     });
 };
-// Removes a user from the session
+
+// Retire un utilisateur d'une session
 config.removeUser = function(GUILD_ID, ROLE_ID, USER_ID) {
     initIfNeeded(GUILD_ID);
-    if (USER_ID != config.data[GUILD_ID][ROLE_ID].creator) {
-        delete config.data[GUILD_ID][ROLE_ID].members.splice(config.data[GUILD_ID][ROLE_ID].members.indexOf(USER_ID), 1);
-        config.save();
+    const session = config.data[GUILD_ID][ROLE_ID];
+    if (USER_ID !== session.creator) {
+        const index = session.members.indexOf(USER_ID);
+        if (index !== -1) {
+            session.members.splice(index, 1);
+            config.save();
+        }
     }
 };
-// Creates a new configuration (config.json) for the current guild
+
+// Crée une nouvelle session pour la guilde actuelle
 config.createSession = function(GUILD_ID, USER_ID, ROLE_ID, GAME, T_CHANNEL_ID, V_CHANNEL_ID, MESSAGE_ID, CHANNEL_ID) {
     initIfNeeded(GUILD_ID);
+    console.log("Add session " + MESSAGE_ID + " in guild " + GUILD_ID);
     config.data[GUILD_ID][ROLE_ID] = {
         creator: USER_ID,
         game: GAME,
@@ -102,126 +129,137 @@ config.createSession = function(GUILD_ID, USER_ID, ROLE_ID, GAME, T_CHANNEL_ID, 
     config.data[GUILD_ID].sessions.push(ROLE_ID);
     config.save();
 };
+
+// Supprime une session d'une guilde
 config.removeSession = function(GUILD_ID, ROLE_ID) {
     initIfNeeded(GUILD_ID);
     delete config.data[GUILD_ID][ROLE_ID];
-    config.data[GUILD_ID]['sessions'].splice(config.data[GUILD_ID]['sessions'].indexOf(ROLE_ID), 1);
+    const index = config.data[GUILD_ID].sessions.indexOf(ROLE_ID);
+    if (index !== -1) {
+        config.data[GUILD_ID].sessions.splice(index, 1);
+    }
     config.save();
 };
+
+// Nettoie toutes les sessions d'une guilde
 config.cleanSessions = function(GUILD_ID) {
     return new Promise((resolve, reject) => {
         try {
-            /*config.data[GUILD_ID].forEach(function(SESSION_ID) {
-                    config.data[GUILD_ID][SESSION_ID].delete()
-                })*/
-            config.data[GUILD_ID].sessions.forEach(function(sessionID) {
-                delete config.data[GUILD_ID][sessionID]
-            })
-            config.data[GUILD_ID].sessions = []
-            resolve(true)
+            config.data[GUILD_ID].sessions.forEach(sessionID => {
+                delete config.data[GUILD_ID][sessionID];
+            });
+            config.data[GUILD_ID].sessions = [];
+            config.save();
+            resolve(true);
         } catch (err) {
-            console.log("ERROR: Couldn't clean sessions for guild " + GUILD_ID + ".\n" + err)
-            reject(false)
+            console.error("ERROR: Couldn't clean sessions for guild " + GUILD_ID + ".\n" + err);
+            reject(false);
         }
-    })
-    config.save()
-}
-// Adds a new game to the allowed games list along with the max group size
+    });
+};
+
+// Ajoute un nouveau jeu à la liste des jeux autorisés
 config.addGame = function(GUILD_ID, GAME, LIMIT) {
     return new Promise((resolve, reject) => {
         try {
             initIfNeeded(GUILD_ID);
             if (config.data[GUILD_ID].games.hasOwnProperty(GAME)) {
-                reject(false);
+                reject('Game already exists');
+            } else {
+                config.data[GUILD_ID].games[GAME] = {
+                    'LIMIT': parseInt(LIMIT)
+                };
+                console.log(`Game added: ${GAME}`, config.data[GUILD_ID].games);
+                config.save();
+                resolve(true);
             }
-            var tempGame = {
-                'LIMIT': parseInt(LIMIT)
-            };
-            config.data[GUILD_ID].games[GAME] = tempGame;
-            config.save();
-            resolve(true);
         } catch (err) {
-            console.error(err);
+            console.error('Error adding game:', err);
             reject(err);
         }
     });
 };
-// Removes a game from the allowed games list
+
+// Supprime un jeu de la liste des jeux autorisés
 config.removeGame = function(GUILD_ID, GAME) {
     return new Promise((resolve, reject) => {
         try {
             initIfNeeded(GUILD_ID);
-            if(GAME in config.data[GUILD_ID].games){
-            delete config.data[GUILD_ID].games[GAME]; // Delete the game from the object
-            config.save()
-            resolve(true);
-            }else{
-                reject(false);            
+            if (GAME in config.data[GUILD_ID].games) {
+                console.log(`Game removed: ${GAME}`, config.data[GUILD_ID].games);
+                delete config.data[GUILD_ID].games[GAME];
+                config.save();
+                resolve(true);
+            } else {
+                reject('Game not found');
             }
         } catch (err) {
-            reject(false);
+            console.error('Error removing game:', err);
+            reject(err);
         }
     });
 };
-// Promises a specified game on the list
+
+// Récupère un jeu de la liste des jeux autorisés
 config.getGame = function(GUILD_ID, GAME) {
     return new Promise((resolve, reject) => {
         try {
             initIfNeeded(GUILD_ID);
-            if (config.data[GUILD_ID] === undefined || !config.data[GUILD_ID].games[GAME]) {
-                resolve(false); // Game not found
+            if (config.data[GUILD_ID] && config.data[GUILD_ID].games[GAME]) {
+                resolve(config.data[GUILD_ID].games[GAME]);
             } else {
-                resolve(config.data[GUILD_ID].games[GAME]); // Game found
+                resolve(false);
             }
         } catch (err) {
-            console.error(err);
+            console.error('Error getting game:', err);
             resolve(false);
         }
     });
 };
-// Returns a list of games and max players
+
+// Retourne la liste des jeux et du nombre maximum de joueurs
 config.getGames = function(GUILD_ID) {
     initIfNeeded(GUILD_ID);
     return config.data[GUILD_ID].games;
 };
+
+// Récupère une session spécifique
 config.getSession = function(GUILD_ID, ROLE_ID) {
-    initIfNeeded(GUILD_ID)
-    session = config.data[GUILD_ID][ROLE_ID]
-    return session
-}
-// Returns a list of sessions
+    initIfNeeded(GUILD_ID);
+    return config.data[GUILD_ID][ROLE_ID];
+};
+
+// Retourne une liste de sessions
 config.getSessions = function(GUILD_ID) {
     initIfNeeded(GUILD_ID);
-    var sessions = config.data[GUILD_ID].sessions;
-    sessions = sessions.map(val => {
-        const game = config.data[GUILD_ID][val].game; // Gets the session's game
-        const sessionArr = [
-            game,
-            config.data[GUILD_ID][val].members.length,
-            config.data[GUILD_ID].games[game].LIMIT
-        ];
-        return sessionArr;
+    return config.data[GUILD_ID].sessions.map(roleId => {
+        const session = config.data[GUILD_ID][roleId];
+        const game = session.game;
+        return [game, session.members.length, config.data[GUILD_ID].games[game].LIMIT];
     });
-    return sessions;
 };
-config.getRoleByReaction = function(REACTION, GUILD_ID) { //https://stackoverflow.com/a/9907509
+
+// Récupère un rôle en fonction de la réaction
+config.getRoleByReaction = function(REACTION, GUILD_ID) {
     initIfNeeded(GUILD_ID);
-    var obj = config.data[GUILD_ID];
-    for (var prop in obj) {
-        if (obj.hasOwnProperty(prop)) {
-            if (obj[prop].messageid === REACTION.message.id) return prop;
+    for (let prop in config.data[GUILD_ID]) {
+        if (config.data[GUILD_ID][prop].messageid === REACTION.message.id) {
+            return prop;
         }
     }
 };
+
+// Retourne le nombre total de guildes configurées
 config.getGuildCount = function() {
     return Object.keys(config.data).length;
-}
-// Find a session
+};
+
+// Trouve une session basée sur un jeu
 config.findSession = function(GUILD_ID, GAME) {
-    if (config.data[GUILD_ID] === undefined) {
+    if (!config.data[GUILD_ID]) {
         return false;
     } else {
-        for (element in config.data[GUILD_ID]) {
+        for (let element in config.data[GUILD_ID]) {
             if (config.data[GUILD_ID][element].game === GAME) {
                 return element;
             }
@@ -229,35 +267,48 @@ config.findSession = function(GUILD_ID, GAME) {
         return false;
     }
 };
+
+// Récupère un paramètre de configuration pour une guilde spécifique
 config.getSetting = function(SETTING, GUILD_ID) {
-    return config.data[GUILD_ID].options[SETTING];
-}
+    return config.data[GUILD_ID]?.options?.[SETTING];
+};
+
+// Définit un paramètre de configuration pour une guilde spécifique
 config.setSetting = function(SETTING, GUILD_ID, VALUE) {
     initIfNeeded(GUILD_ID);
     return new Promise((resolve, reject) => {
         try {
-            if (config.data[GUILD_ID].options.hasOwnProperty(SETTING)) {
-                if (SETTING == "inactivityDrop" && VALUE < config.getSetting('sessionWarn', GUILD_ID)) {
+            if (SETTING in config.data[GUILD_ID].options) {
+                if (SETTING === "inactivityDrop" && VALUE < config.getSetting('sessionWarn', GUILD_ID)) {
                     reject("The inactivityDrop value cannot be less than the sessionWarn value.");
+                } else {
+                    config.data[GUILD_ID].options[SETTING] = parseInt(VALUE);
+                    config.save();
+                    resolve(true);
                 }
-                config.data[GUILD_ID].options[SETTING] = parseInt(VALUE);
-                config.save();
-                resolve(true);
             } else {
-                reject("NONEXISTANT");
+                reject("NONEXISTENT_SETTING");
             }
         } catch (err) {
+            console.error('Error setting configuration:', err);
             reject(false);
         }
     });
-}
-// Get channel ID
+};
+
+// Récupère l'ID du canal pour une session spécifique
 config.getChannelID = function(GUILD_ID, SESSION) {
     return new Promise((resolve, reject) => {
         initIfNeeded(GUILD_ID);
-        resolve(config.data[GUILD_ID][SESSION].channel);
+        const channelId = config.data[GUILD_ID][SESSION]?.channel;
+        if (channelId) {
+            resolve(channelId);
+        } else {
+            reject('Channel ID not found');
+        }
     });
 };
+
 // Initialises GUILD_ID if necessary
 function initIfNeeded(GUILD_ID) {
     if (config.data[GUILD_ID] === undefined || config.data[GUILD_ID].games === undefined) {
@@ -272,3 +323,6 @@ function initIfNeeded(GUILD_ID) {
         };
     }
 }
+
+// Exporte le module
+module.exports = config;
